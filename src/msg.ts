@@ -175,10 +175,10 @@ export function parseMsg(input: Uint8Array): Mail {
     const filename =
       decodeStringProp(props.get(P.ATTACH_LONG_FILENAME), charset) ??
       decodeStringProp(props.get(P.ATTACH_FILENAME), charset);
-    if (!filename) continue;
     const data = props.get("3701"); // PR_ATTACH_DATA_BIN
     attachments.push({
-      filename,
+      // An attachment record must never vanish just because it has no name.
+      filename: filename || "(unnamed)",
       contentType: decodeStringProp(props.get(P.ATTACH_MIME_TAG), charset),
       size: data ? data.bytes.length : 0,
     });

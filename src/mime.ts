@@ -26,12 +26,107 @@ function latin1ToBytes(s: string): Uint8Array {
   return bytes;
 }
 
-/** Extract the value of a Content-Type / Content-Disposition parameter. */
+/** Match every `attribute=value` pair in a structured header value. */
+const PARAM_PAIR = /([!#$%&'*+.0-9A-Z^_`a-z{|}~-]+)\s*=\s*("([^"]*)"|[^;]*)/g;
+
+/** Percent-decode an RFC 2231 value to bytes (non-escaped chars pass through). */
+function percentDecodeToBytes(s: string): Uint8Array {
+  const out: number[] = [];
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === "%" && /^[0-9A-Fa-f]{2}$/.test(s.slice(i + 1, i + 3))) {
+      out.push(parseInt(s.slice(i + 1, i + 3), 16));
+      i += 2;
+    } else {
+      out.push(s.charCodeAt(i) & 0xff);
+    }
+  }
+  return new Uint8Array(out);
+}
+
+/**
+ * Extract the value of a Content-Type / Content-Disposition parameter.
+ *
+ * Understands, in order of precedence:
+ * - RFC 2231 extended form: `name*=charset'lang'percent-encoded`
+ * - RFC 2231 continuations: `name*0*=...; name*1=...` (assembled in order;
+ *   the charset prefix is taken from section 0, and percent-decoded bytes
+ *   from all sections are concatenated before charset decoding so multibyte
+ *   sequences may span section boundaries)
+ * - Plain form: `name=value` / `name="value"`
+ *
+ * An empty or unknown charset label is decoded as UTF-8 best-effort (see
+ * decodeBytes), which also covers plain ASCII values.
+ */
 function param(headerLine: string, name: string): string | undefined {
-  const re = new RegExp(`${name}\\s*=\\s*("([^"]*)"|([^;\\s]+))`, "i");
-  const m = re.exec(headerLine);
-  if (!m) return undefined;
-  return m[2] ?? m[3];
+  const base = name.toLowerCase();
+  const contRe = new RegExp(`^${base}\\*(\\d+)(\\*)?$`, "i");
+  let plain: string | undefined;
+  let extended: string | undefined;
+  const sections = new Map<number, { encoded: boolean; value: string }>();
+
+  PARAM_PAIR.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = PARAM_PAIR.exec(headerLine)) !== null) {
+    const key = m[1]!.toLowerCase();
+    const value = m[3] ?? m[2]!.trim();
+    if (key === base) {
+      plain ??= value;
+      continue;
+    }
+    if (key === `${base}*`) {
+      extended ??= value;
+      continue;
+    }
+    const cont = contRe.exec(m[1]!);
+    if (cont) {
+      const idx = parseInt(cont[1]!, 10);
+      if (!sections.has(idx)) sections.set(idx, { encoded: cont[2] !== undefined, value });
+    }
+  }
+
+  if (extended !== undefined) {
+    // charset'language'percent-encoded; a malformed value (no apostrophes)
+    // is treated as percent-encoded UTF-8.
+    const ext = /^([^']*)'[^']*'([\s\S]*)$/.exec(extended);
+    const charset = ext ? ext[1]! : "";
+    const encoded = ext ? ext[2]! : extended;
+    return decodeBytes(percentDecodeToBytes(encoded), charset || undefined);
+  }
+
+  if (sections.size > 0) {
+    const order = [...sections.keys()].sort((a, b) => a - b);
+    let charset: string | undefined;
+    const chunks: Uint8Array[] = [];
+    for (const idx of order) {
+      const section = sections.get(idx)!;
+      let value = section.value;
+      if (section.encoded) {
+        if (idx === 0) {
+          const ext = /^([^']*)'[^']*'([\s\S]*)$/.exec(value);
+          if (ext) {
+            charset = ext[1]! || undefined;
+            value = ext[2]!;
+          }
+        }
+        chunks.push(percentDecodeToBytes(value));
+      } else {
+        // Literal sections are ASCII per RFC 2231; keep their byte values.
+        const bytes = new Uint8Array(value.length);
+        for (let i = 0; i < value.length; i++) bytes[i] = value.charCodeAt(i) & 0xff;
+        chunks.push(bytes);
+      }
+    }
+    const total = chunks.reduce((n, c) => n + c.length, 0);
+    const joined = new Uint8Array(total);
+    let offset = 0;
+    for (const c of chunks) {
+      joined.set(c, offset);
+      offset += c.length;
+    }
+    return decodeBytes(joined, charset);
+  }
+
+  return plain;
 }
 
 interface Accum {
@@ -81,12 +176,13 @@ function walk(headers: Header[], body: string, acc: Accum): void {
     return;
   }
 
-  const filename = param(disposition, "filename") ?? param(contentType, "name");
+  const filename = (param(disposition, "filename") || param(contentType, "name")) || undefined;
   const isAttachment = /attachment/i.test(disposition) || (filename !== undefined && !mediaType.startsWith("text/"));
   const bytes = decodePartBytes(body, cte);
 
-  if (isAttachment && filename) {
-    acc.attachments.push({ filename, contentType: mediaType, size: bytes.length });
+  if (isAttachment) {
+    // A declared attachment must never vanish just because it has no name.
+    acc.attachments.push({ filename: filename ?? "(unnamed)", contentType: mediaType, size: bytes.length });
     return;
   }
 
