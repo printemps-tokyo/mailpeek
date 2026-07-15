@@ -1,6 +1,5 @@
 /** Write parsed attachments to a directory (the --save flag). */
-import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Attachment } from "./mail.js";
 
@@ -31,11 +30,42 @@ export function extensionForContentType(contentType?: string): string {
   return EXT_BY_TYPE[type] ?? ".bin";
 }
 
+/** Windows-reserved device basenames; reserved with or without an extension. */
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+
+/** Keep filenames comfortably under common 255-byte filesystem limits. */
+const MAX_NAME_BYTES = 200;
+
+/** An "extension" longer than this is treated as part of the base name. */
+const MAX_EXT_BYTES = 32;
+
+function utf8Length(s: string): number {
+  return Buffer.byteLength(s, "utf8");
+}
+
+/** Cut a string so its UTF-8 form fits in maxBytes, never splitting a code point. */
+function truncateUtf8(s: string, maxBytes: number): string {
+  let out = "";
+  let bytes = 0;
+  for (const ch of s) {
+    bytes += Buffer.byteLength(ch, "utf8");
+    if (bytes > maxBytes) break;
+    out += ch;
+  }
+  return out;
+}
+
 /**
  * Make an attachment filename safe to write inside a directory:
  * - control characters (CR, LF, NUL, ...) are removed,
- * - path separators, and percent-encoded ones (%2F, %5C), become "_" so the
- *   name can never traverse out of the target directory,
+ * - path separators, percent-encoded ones (%2F, %5C), and characters Windows
+ *   forbids (< > : " | ? *) become "_", so the name can never traverse out of
+ *   the target directory,
+ * - trailing dots and spaces are trimmed (Windows drops them on create),
+ * - names longer than 200 UTF-8 bytes are truncated, keeping the extension,
+ *   so a hostile name cannot abort the run with ENAMETOOLONG,
+ * - Windows-reserved device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9 — with
+ *   or without an extension, any case) get a "_" prefix,
  * - names that reduce to "", "." or ".." return "" (caller picks a fallback).
  */
 export function sanitizeFilename(name: string): string {
@@ -43,10 +73,24 @@ export function sanitizeFilename(name: string): string {
   for (const ch of name) {
     const code = ch.codePointAt(0)!;
     if (code < 0x20 || code === 0x7f) continue;
-    s += ch === "/" || ch === "\\" ? "_" : ch;
+    s += '/\\<>:"|?*'.includes(ch) ? "_" : ch;
   }
-  s = s.replace(/%2f|%5c/gi, "_").trim();
+  s = s
+    .replace(/%2f|%5c/gi, "_")
+    .trim()
+    .replace(/[. ]+$/, "");
   if (s === "" || s === "." || s === "..") return "";
+
+  if (utf8Length(s) > MAX_NAME_BYTES) {
+    let [base, ext] = splitExt(s);
+    if (utf8Length(ext) > MAX_EXT_BYTES) {
+      base = s;
+      ext = "";
+    }
+    s = truncateUtf8(base, MAX_NAME_BYTES - utf8Length(ext)) + ext;
+  }
+
+  if (WINDOWS_RESERVED.test(s.split(".", 1)[0]!)) s = `_${s}`;
   return s;
 }
 
@@ -105,11 +149,24 @@ export async function saveAttachments(
     taken.add(candidate.toLowerCase());
 
     const target = join(dir, candidate);
-    if (!opts.force && existsSync(target)) {
-      throw new Error(`refusing to overwrite ${target} (use --force)`);
-    }
     const content = a.content ?? new Uint8Array(0);
-    await writeFile(target, content);
+    if (opts.force) {
+      // Remove whatever occupies the name first (a plain file, or a symlink —
+      // removed as the link itself, not its target) so the exclusive create
+      // below writes a fresh regular file instead of following a symlink.
+      await rm(target, { force: true });
+    }
+    try {
+      // "wx" (O_CREAT | O_EXCL) makes the no-overwrite check atomic: it cannot
+      // race with a concurrent create, and it refuses to follow a pre-planted
+      // symlink (even a dangling one, which existsSync would report as absent).
+      await writeFile(target, content, { flag: "wx" });
+    } catch (err) {
+      if (!opts.force && (err as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new Error(`refusing to overwrite ${target} (use --force)`);
+      }
+      throw err;
+    }
     written.push({ path: target, size: content.length });
   }
   return written;

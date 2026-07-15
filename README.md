@@ -107,14 +107,20 @@ mailpeek message.eml --save out --only 2
 
 Safety rules when writing:
 
-- Filenames are sanitized: path separators (including `%2F` / `%5C`) and
-  control characters are stripped, so a hostile name like `..%2F..%2Fx` cannot
-  escape the target directory.
+- Filenames are sanitized: path separators (including `%2F` / `%5C`), control
+  characters, and Windows-forbidden characters (`< > : " | ? *`) are stripped
+  or replaced, so a hostile name like `..%2F..%2Fx` cannot escape the target
+  directory. Trailing dots and spaces are trimmed, over-long names are
+  truncated to 200 bytes (keeping the extension), and Windows-reserved device
+  names (`CON`, `NUL`, `COM1`, ...) get a `_` prefix.
 - Name collisions inside one message are suffixed `-1`, `-2`, ...
 - Unnamed attachments are written as `attachment.<ext>`, with the extension
   guessed from the media type (`.bin` when unknown).
 - Files that already exist on disk are never overwritten unless you pass
-  `--force`.
+  `--force`; the check is an atomic exclusive create, so a pre-planted symlink
+  in the directory is refused rather than followed. With `--force` an existing
+  file or symlink is removed first and replaced by a fresh regular file — a
+  symlink's target is never written through.
 
 ## Formats
 
