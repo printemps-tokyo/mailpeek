@@ -6,11 +6,17 @@ export interface Header {
   value: string;
 }
 
-/** A described attachment (metadata only; bytes are not retained by default). */
+/** A parsed attachment: metadata plus the decoded bytes (used by --save). */
 export interface Attachment {
   filename: string;
   contentType?: string;
   size: number;
+  /**
+   * The decoded attachment bytes. Present for .eml parts and for .msg
+   * attachments that carry PR_ATTACH_DATA_BIN; absent when the source
+   * had no data stream (e.g. an embedded-message attachment).
+   */
+  content?: Uint8Array;
 }
 
 /** A parsed email, source-agnostic. */

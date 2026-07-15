@@ -182,7 +182,7 @@ function walk(headers: Header[], body: string, acc: Accum): void {
 
   if (isAttachment) {
     // A declared attachment must never vanish just because it has no name.
-    acc.attachments.push({ filename: filename ?? "(unnamed)", contentType: mediaType, size: bytes.length });
+    acc.attachments.push({ filename: filename ?? "(unnamed)", contentType: mediaType, size: bytes.length, content: bytes });
     return;
   }
 
@@ -193,7 +193,7 @@ function walk(headers: Header[], body: string, acc: Accum): void {
   } else if (mediaType === "text/plain") {
     if (acc.text === undefined) acc.text = text;
   } else if (filename) {
-    acc.attachments.push({ filename, contentType: mediaType, size: bytes.length });
+    acc.attachments.push({ filename, contentType: mediaType, size: bytes.length, content: bytes });
   }
 }
 

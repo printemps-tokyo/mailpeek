@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 import { readMail } from "./read.js";
 import { renderJson, renderText } from "./render.js";
 import { openHtmlInBrowser } from "./open.js";
+import { saveAttachments } from "./save.js";
 
 const HELP = `mailpeek - read .eml and .msg email files from the terminal
 
@@ -20,6 +21,9 @@ Options:
   --open              Open the HTML body in your default browser
   --no-body           Show only headers, not the body
   --max-body <n>      Truncate the body to n characters
+  --save <dir>        Write all attachments into <dir> (created if missing)
+  --only <n>          With --save: write only attachment n (1-based, as listed)
+  --force             With --save: overwrite files that already exist
   --json              Output JSON instead of text
   --no-color          Disable ANSI colors
   -h, --help          Show this help
@@ -29,6 +33,8 @@ Examples:
   mailpeek message.eml
   mailpeek "invite.msg" --headers
   mailpeek newsletter.eml --open
+  mailpeek report.msg --save ./attachments
+  mailpeek message.eml --save out --only 2
   cat message.eml | mailpeek --json
 `;
 
@@ -68,6 +74,9 @@ async function main(): Promise<number> {
         open: { type: "boolean", default: false },
         "no-body": { type: "boolean", default: false },
         "max-body": { type: "string" },
+        save: { type: "string" },
+        only: { type: "string" },
+        force: { type: "boolean", default: false },
         json: { type: "boolean", default: false },
         "no-color": { type: "boolean", default: false },
       },
@@ -85,12 +94,40 @@ async function main(): Promise<number> {
     return 1;
   }
 
+  if (values.only !== undefined && values.save === undefined) {
+    process.stderr.write("error: --only requires --save <dir>\n");
+    return 1;
+  }
+
   let mail;
   try {
     mail = await readMail(path);
   } catch (err) {
     process.stderr.write(`error: ${(err as Error).message}\n`);
     return 1;
+  }
+
+  if (values.save !== undefined) {
+    if (mail.attachments.length === 0) {
+      process.stderr.write("error: this message has no attachments\n");
+      return 1;
+    }
+    let only: number | undefined;
+    if (values.only !== undefined) {
+      only = Number(values.only);
+      if (!Number.isInteger(only) || only < 1) {
+        process.stderr.write("error: --only expects a positive attachment number (as listed)\n");
+        return 1;
+      }
+    }
+    try {
+      const written = await saveAttachments(mail.attachments, values.save, { only, force: values.force });
+      for (const f of written) process.stdout.write(`saved ${f.path} (${f.size} bytes)\n`);
+    } catch (err) {
+      process.stderr.write(`error: ${(err as Error).message}\n`);
+      return 1;
+    }
+    return 0;
   }
 
   if (values.open) {

@@ -50,6 +50,8 @@ mailpeek invite.msg                  # Outlook .msg works the same way
 mailpeek message.eml --headers       # every header, in order
 mailpeek newsletter.eml --html       # print the raw HTML body
 mailpeek newsletter.eml --open       # open the HTML in your browser
+mailpeek report.msg --save ./out     # extract every attachment into ./out
+mailpeek message.eml --save out --only 2   # only the 2nd listed attachment
 mailpeek message.eml --json          # machine-readable
 cat message.eml | mailpeek           # ...or from stdin
 ```
@@ -62,6 +64,9 @@ cat message.eml | mailpeek           # ...or from stdin
 | `--open` | Write the HTML body to a temp file and open it in your default browser |
 | `--no-body` | Show only the headers |
 | `--max-body <n>` | Truncate the body to n characters |
+| `--save <dir>` | Write all attachments into `<dir>` (created if missing) |
+| `--only <n>` | With `--save`: write only attachment `n` (1-based, as listed) |
+| `--force` | With `--save`: overwrite files that already exist |
 | `--json` | Output JSON instead of text |
 | `--no-color` | Disable ANSI colors |
 
@@ -76,7 +81,40 @@ cat message.eml | mailpeek           # ...or from stdin
   converted to readable text, and `--html` / `--open` give you the raw HTML.
 - Character sets are handled for both formats (UTF-8, Shift_JIS, ISO-2022-JP,
   windows-1252, and more), including UTF-16 `.msg` property streams.
-- Attachment names, media types, and sizes.
+- Attachment names, media types, and sizes — and `--save` writes the files out.
+
+## Extracting attachments
+
+`--save <dir>` decodes every attachment (base64 / quoted-printable for `.eml`,
+the `PR_ATTACH_DATA_BIN` streams for `.msg`) and writes it into the directory,
+creating it if needed. Each written path is printed:
+
+```console
+$ mailpeek "quarterly report.msg" --save ./out
+saved out/report.xlsx (48213 bytes)
+saved out/chart.png (10981 bytes)
+```
+
+To pick a single attachment, combine `--save` with `--only <n>`, where `n` is
+the 1-based index shown in the attachment listing (this replaces a separate
+`--save-attachment` flag; one directory flag plus one selector composes better
+with the existing options):
+
+```bash
+mailpeek message.eml                 # ...lists attachments 1..N
+mailpeek message.eml --save out --only 2
+```
+
+Safety rules when writing:
+
+- Filenames are sanitized: path separators (including `%2F` / `%5C`) and
+  control characters are stripped, so a hostile name like `..%2F..%2Fx` cannot
+  escape the target directory.
+- Name collisions inside one message are suffixed `-1`, `-2`, ...
+- Unnamed attachments are written as `attachment.<ext>`, with the extension
+  guessed from the media type (`.bin` when unknown).
+- Files that already exist on disk are never overwritten unless you pass
+  `--force`.
 
 ## Formats
 

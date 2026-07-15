@@ -1,0 +1,17 @@
+Subject: fixture with attachment
+From: alice@example.com
+To: bob@example.com
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="XX"
+
+--XX
+Content-Type: text/plain; charset=utf-8
+
+See the attached notes.
+--XX
+Content-Type: text/plain; charset=utf-8
+Content-Disposition: attachment; filename="notes.txt"
+Content-Transfer-Encoding: base64
+
+SGVsbG8sIGF0dGFjaG1lbnQhCg==
+--XX--

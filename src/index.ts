@@ -22,3 +22,5 @@ export { decodeQuotedPrintable, decodeBase64 } from "./quoted-printable.js";
 export { decodeBytes, decodeUtf16Le, normalizeCharset } from "./charset.js";
 export { htmlToText, decodeEntities } from "./html-to-text.js";
 export { renderText, renderJson } from "./render.js";
+export { saveAttachments, sanitizeFilename, extensionForContentType } from "./save.js";
+export type { SaveOptions, SavedFile } from "./save.js";

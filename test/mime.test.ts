@@ -65,8 +65,18 @@ describe("parseEml", () => {
     expect(mail.text).toBe("Hello World☃");
     expect(mail.html).toBe("<p>Hi <b>there</b></p>");
     expect(mail.attachments).toEqual([
-      { filename: "data.bin", contentType: "application/octet-stream", size: 7 },
+      {
+        filename: "data.bin",
+        contentType: "application/octet-stream",
+        size: 7,
+        content: new Uint8Array(Buffer.from("payload", "utf8")),
+      },
     ]);
+  });
+
+  it("retains the decoded attachment bytes", () => {
+    const mail = parseEml(eml);
+    expect(Buffer.from(mail.attachments[0]!.content!).toString("utf8")).toBe("payload");
   });
 
   it("derives text from html when there is no text/plain part", () => {
@@ -108,7 +118,7 @@ describe("parseEml", () => {
         'Content-Disposition: attachment; filename="report.pdf"',
       ]),
     );
-    expect(mail.attachments).toEqual([
+    expect(mail.attachments).toMatchObject([
       { filename: "report.pdf", contentType: "application/pdf", size: 7 },
     ]);
   });
@@ -171,7 +181,7 @@ describe("parseEml", () => {
         "Content-Disposition: attachment",
       ]),
     );
-    expect(mail.attachments).toEqual([
+    expect(mail.attachments).toMatchObject([
       { filename: "(unnamed)", contentType: "application/octet-stream", size: 7 },
     ]);
   });
@@ -182,7 +192,12 @@ describe("parseEml", () => {
     expect(text).toContain("Subject: 日本");
     expect(text).toContain("Hello World☃");
     expect(text).toContain("attachments (1)");
-    expect(JSON.parse(renderJson(mail)).subject).toBe("日本");
+    const json = JSON.parse(renderJson(mail));
+    expect(json.subject).toBe("日本");
+    // JSON output carries attachment metadata only, never the raw bytes.
+    expect(json.attachments).toEqual([
+      { filename: "data.bin", contentType: "application/octet-stream", size: 7 },
+    ]);
   });
 });
 

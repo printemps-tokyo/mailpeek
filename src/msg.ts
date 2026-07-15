@@ -181,6 +181,7 @@ export function parseMsg(input: Uint8Array): Mail {
       filename: filename || "(unnamed)",
       contentType: decodeStringProp(props.get(P.ATTACH_MIME_TAG), charset),
       size: data ? data.bytes.length : 0,
+      content: data?.bytes,
     });
   }
 

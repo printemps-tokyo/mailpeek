@@ -76,7 +76,8 @@ export function renderJson(mail: Mail): string {
       headers: mail.headers,
       text: mail.text,
       html: mail.html,
-      attachments: mail.attachments,
+      // Metadata only: the raw bytes belong in --save, not in JSON output.
+      attachments: mail.attachments.map(({ filename, contentType, size }) => ({ filename, contentType, size })),
     },
     null,
     2,
