@@ -1,5 +1,6 @@
 /** Render a parsed Mail as human-readable text or JSON. */
 import type { Mail } from "./mail.js";
+import { padToWidth } from "./width.js";
 
 const KEY_HEADERS = ["Date", "From", "To", "Cc", "Subject"];
 
@@ -16,7 +17,7 @@ function paint(text: string, code: string, color: boolean): string {
 }
 
 function label(name: string, color: boolean): string {
-  return paint(`${name}:`.padEnd(9), "36", color); // cyan
+  return paint(padToWidth(`${name}:`, 9), "36", color); // cyan
 }
 
 /** Render the mail as text: a header summary, the body, and any attachments. */
