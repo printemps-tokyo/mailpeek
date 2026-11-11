@@ -27,7 +27,7 @@ Compound File (OLE2) parser, so it does not need Outlook or any external tool.
 
 ## Requirements
 
-- Node.js >= 20
+- Node.js >= 22
 
 ## Install
 
