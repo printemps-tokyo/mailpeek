@@ -22,7 +22,7 @@
     "cli"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "bin": {
     "mailpeek": "dist/cli.js"
