@@ -163,7 +163,7 @@ export async function saveAttachments(
       await writeFile(target, content, { flag: "wx" });
     } catch (err) {
       if (!opts.force && (err as NodeJS.ErrnoException).code === "EEXIST") {
-        throw new Error(`refusing to overwrite ${target} (use --force)`);
+        throw new Error(`refusing to overwrite ${target} (use --force)`, { cause: err });
       }
       throw err;
     }
